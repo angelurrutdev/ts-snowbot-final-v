@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "CommonJS",
+        "moduleResolution": "Node",
+        "strict": true,
+        "noImplicitAny": true,
+        "declaration": false,
+        "skipLibCheck": true,
+        "strictNullChecks": true,
+        "resolveJsonModule": true,
+        "outDir": "dist"
+    },
+    "include": ["src"],
+    "exclude": [
+        "node_modules",
+        "src/commands/client",
+        "src/commands/guild",
+        "src/lib/ticketManager.ts",
+        "src/types/hungergames.ts",
+        "src/types/tickets.ts"
+    ]
+}
