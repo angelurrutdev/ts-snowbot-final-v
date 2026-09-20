@@ -125,6 +125,26 @@ export async function getLatestVideo(): Promise<YoutubeVideo> {
 }
 
 /**
+ * Trae los últimos `scanLimit` uploads (newest-first) ya clasificados.
+ * A diferencia de `getLatestVideo()` (que solo trae 1), esto le permite al
+ * watcher revisar varios uploads a la vez y no saltarse ninguno si subes
+ * más de una cosa entre dos revisiones (por ejemplo un Short y un video
+ * casi al mismo tiempo). Sigue siendo solo 2 llamadas a la API.
+ */
+export async function getRecentVideos(scanLimit = 10): Promise<YoutubeVideo[]> {
+    const { apiKey, items } = await fetchRecentItems(scanLimit)
+    const detailsById = await fetchDetails(apiKey, items.map(item => item.videoId))
+
+    const videos: YoutubeVideo[] = []
+    for (const item of items) {
+        const details = detailsById.get(item.videoId)
+        if (!details) continue
+        videos.push(toVideo(item.videoId, item.snippet, classify(details)))
+    }
+    return videos
+}
+
+/**
  * Recorre los últimos `scanLimit` uploads (newest-first) y devuelve el
  * primero que coincida con el tipo pedido ('video' | 'short' | 'live').
  * Sigue siendo solo 2 llamadas a la API sin importar cuántos revise.

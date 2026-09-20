@@ -1,19 +1,34 @@
 import type { SendableChannels } from 'discord.js'
 import type { GlobClient } from '../types/index'
-import { getLatestVideo } from './youtube'
+import { getRecentVideos } from './youtube'
 import { buildVideoNotificationPayload } from './youtubeNotify'
 import { readCache, writeCache } from './youtubeCache'
 
 const DEFAULT_INTERVAL_MINUTES = 5
 
+// Cuántos uploads recientes revisa cada vez. Con más de 1 (a diferencia de
+// la versión anterior, que solo miraba el más reciente) no se salta nada si
+// subes varias cosas entre dos revisiones.
+const SCAN_LIMIT = 10
+
+// Cuántos IDs recuerda como "ya avisados" (recorta el historial para que el
+// archivo no crezca para siempre).
+const MAX_HISTORY = 30
+
 /**
- * Revisa cada cierto tiempo si el canal de YouTube configurado subió un
- * video nuevo y, si es así, lo avisa solo en YOUTUBE_NOTIFY_CHANNEL_ID.
+ * Revisa cada cierto tiempo si el canal de YouTube configurado subió
+ * contenido nuevo y, si es así, lo avisa solo en YOUTUBE_NOTIFY_CHANNEL_ID.
  *
  * Al primer arranque, si todavía no existe youtube-cache.json, lo crea con
- * el video actual del canal SIN avisarlo — así nunca hay que "sembrar" nada
- * a mano: el bot simplemente no avisa retroactivamente todo el historial
- * la primera vez que se prende, y de ahí en adelante detecta lo nuevo solo.
+ * los uploads actuales del canal SIN avisarlos — así nunca hay que "sembrar"
+ * nada a mano: el bot no avisa retroactivamente todo el historial la
+ * primera vez que se prende, y de ahí en adelante detecta lo nuevo solo.
+ *
+ * El historial de IDs ya avisados se guarda EN MEMORIA además de en
+ * youtube-cache.json: así, si el guardado en disco fallara por algún
+ * motivo (permisos del hosting, por ejemplo), el bot igual nunca vuelve a
+ * repetir el mismo aviso mientras el proceso siga corriendo — antes, si
+ * fallaba el guardado, el mismo video se repostaba en cada revisión.
  */
 export function startYoutubeWatcher(client: GlobClient): void {
     const channelId = process.env.YOUTUBE_NOTIFY_CHANNEL_ID
@@ -24,18 +39,37 @@ export function startYoutubeWatcher(client: GlobClient): void {
 
     const intervalMinutes = Number(process.env.YOUTUBE_POLL_MINUTES) || DEFAULT_INTERVAL_MINUTES
 
+    const existingCache = readCache()
+    const announced = new Set(existingCache?.announcedIds ?? [])
+    let seeded = existingCache !== null
+
+    const persist = (context: string) => {
+        try {
+            writeCache({ announcedIds: [...announced].slice(-MAX_HISTORY) })
+        } catch (writeError) {
+            console.error(
+                `[YOUTUBE] ⚠️ No se pudo guardar youtube-cache.json en disco (${context}). ` +
+                `Revisa permisos de escritura en el hosting. Mientras este proceso siga ` +
+                `corriendo no se va a repetir el aviso, pero si el bot se reinicia SÍ podría volver a avisarlo. Error:`,
+                writeError,
+            )
+        }
+    }
+
     const check = async () => {
         try {
-            const video = await getLatestVideo()
-            const cache = readCache()
+            const videos = await getRecentVideos(SCAN_LIMIT) // más nuevo primero
 
-            if (!cache) {
-                writeCache({ lastVideoId: video.videoId })
-                console.log(`[YOUTUBE] Cache inicial creada con el video actual (${video.videoId}); no se avisa retroactivamente`)
+            if (!seeded) {
+                videos.forEach(v => announced.add(v.videoId))
+                seeded = true
+                persist('cache inicial')
+                console.log(`[YOUTUBE] Cache inicial creada con ${videos.length} upload(s) existentes; no se avisa retroactivamente`)
                 return
             }
 
-            if (cache.lastVideoId === video.videoId) return
+            const nuevos = videos.filter(v => !announced.has(v.videoId)).reverse() // más viejo primero
+            if (nuevos.length === 0) return
 
             const channel = await client.channels.fetch(channelId)
             if (!channel || !channel.isTextBased()) {
@@ -43,9 +77,17 @@ export function startYoutubeWatcher(client: GlobClient): void {
                 return
             }
 
-            await (channel as SendableChannels).send(buildVideoNotificationPayload(video))
-            writeCache({ lastVideoId: video.videoId })
-            console.log(`[YOUTUBE] Aviso enviado (${video.type}): ${video.title}`)
+            for (const video of nuevos) {
+                await (channel as SendableChannels).send(buildVideoNotificationPayload(video))
+                console.log(`[YOUTUBE] Aviso enviado (${video.type}): ${video.title}`)
+
+                // Se marca como avisado (en memoria y en disco) justo después
+                // de cada envío individual, no al final del lote — así, si el
+                // proceso se cae a la mitad, nunca se reenvía lo que ya se
+                // avisó en esta misma tanda.
+                announced.add(video.videoId)
+                persist(`tras avisar "${video.title}"`)
+            }
         } catch (error) {
             console.error('[YOUTUBE] Error revisando videos nuevos:', error)
         }
