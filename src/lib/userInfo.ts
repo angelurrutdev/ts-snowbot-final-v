@@ -54,7 +54,7 @@ export function getTwitchAuditInfo(userId: string): TwitchAuditInfo | null {
             FROM twitch_name_history
             WHERE discord_id = ?
             ORDER BY recorded_at DESC
-        `).all(userId) as NameHistoryRow[]
+        `).all(userId) as unknown as NameHistoryRow[]
 
         const nameHistory = Array.from(new Set([
             ...previousNames,
