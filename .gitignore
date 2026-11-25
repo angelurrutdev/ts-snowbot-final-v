@@ -5,6 +5,7 @@ node_modules/
 .env
 .env.local
 .env.*.local
+.env.save
 
 # Archivos de registro y depuración
 npm-debug.log*
@@ -39,3 +40,9 @@ moderation-data.json
 
 # Archivos temporales de prueba
 TEST*.txt
+
+# Datos locales / SQLite
+data/
+*.db
+*.sqlite
+*.sqlite-*
