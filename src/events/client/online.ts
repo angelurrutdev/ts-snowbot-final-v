@@ -1,5 +1,6 @@
 import { ActivityType } from 'discord.js'
 import { handleCommands } from '../../handlers/commands'
+import { cacheGuildInvites } from '../../lib/inviteTracker'
 import { startYoutubeWatcher } from '../../lib/youtubeWatcher'
 import { Event } from '../../types/index'
 
@@ -32,6 +33,9 @@ export const event: Event<'ready'> = {
         }
 
         await handleCommands(client)
+        for (const guild of client.guilds.cache.values()) {
+            await cacheGuildInvites(guild).catch(() => {})
+        }
         startYoutubeWatcher(client)
     },
 }

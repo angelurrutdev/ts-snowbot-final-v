@@ -9,7 +9,7 @@ if (!process.env.DISCORD_TOKEN) throw new Error('[CLIENT] DISCORD_TOKEN no defin
 if (!process.env.GUILD_ID) throw new Error('[CLIENT] GUILD_ID no definido en .env')
 
 const client = new Client({
-    intents: ['Guilds', 'GuildMessages', 'MessageContent', 'GuildMembers']
+    intents: ['Guilds', 'GuildMessages', 'MessageContent', 'GuildMembers', 'GuildInvites']
 }) as GlobClient
 
 client.config = CONFIG
