@@ -41,16 +41,31 @@ const KEY_PERMS: Array<[bigint, string]> = [
     [PermissionFlagsBits.MentionEveryone, 'Mencionar @everyone'],
 ]
 
-async function resolveTargetUser(ctx: Parameters<UnifiedCommand['execute']>[0]): Promise<User> {
-    let user = ctx.getUser('usuario', 0)
-    if (!user && !ctx.isSlash && ctx.args[0]) {
-        const raw = ctx.args[0].replace(/[<@!>]/g, '')
-        if (/^\d{17,20}$/.test(raw)) {
-            user = await ctx.client.users.fetch(raw, { force: true }).catch(() => null)
-        }
+async function resolveTargetUser(ctx: Parameters<UnifiedCommand['execute']>[0]): Promise<{ user: User | null; error?: string }> {
+    const mentionedUser = ctx.getUser('usuario', 0)
+    if (mentionedUser) {
+        const full = await ctx.client.users.fetch(mentionedUser.id, { force: true }).catch(() => mentionedUser)
+        return { user: full }
     }
-    const base = user ?? ctx.user
-    return ctx.client.users.fetch(base.id, { force: true }).catch(() => base)
+
+    const rawInput = ctx.isSlash
+        ? ctx.getString('id', 0)
+        : (ctx.args[0] ?? null)
+
+    if (rawInput) {
+        const cleanId = rawInput.replace(/[<@!>]/g, '').trim()
+        if (!/^\d{17,20}$/.test(cleanId)) {
+            return { user: null, error: '❌ ID de usuario inválida. Usa una ID numérica de 17 a 20 dígitos o menciona al usuario.' }
+        }
+        const fetched = await ctx.client.users.fetch(cleanId, { force: true }).catch(() => null)
+        if (!fetched) {
+            return { user: null, error: `❌ No se encontró ningún usuario de Discord con la ID \`${cleanId}\`.` }
+        }
+        return { user: fetched }
+    }
+
+    const self = await ctx.client.users.fetch(ctx.user.id, { force: true }).catch(() => ctx.user)
+    return { user: self }
 }
 
 async function resolveInviterLine(member: GuildMember | null, user: User, guild: GuildMember['guild']): Promise<string> {
@@ -125,7 +140,11 @@ export const command: UnifiedCommand = {
         .setDMPermission(false)
         .addUserOption(opt => opt
             .setName('usuario')
-            .setDescription('Usuario a consultar (por defecto tú)')
+            .setDescription('Usuario del servidor a consultar')
+            .setRequired(false))
+        .addStringOption(opt => opt
+            .setName('id')
+            .setDescription('ID numérica de Discord (útil para usuarios fuera del servidor)')
             .setRequired(false)),
 
     async execute(ctx) {
@@ -135,7 +154,11 @@ export const command: UnifiedCommand = {
 
         await ctx.deferReply()
 
-        const user = await resolveTargetUser(ctx)
+        const resolved = await resolveTargetUser(ctx)
+        if (!resolved.user) {
+            return ctx.editReply({ content: resolved.error ?? '❌ No se pudo resolver el usuario.' })
+        }
+        const user = resolved.user
         const member = await ctx.guild.members.fetch({ user: user.id, force: true }).catch(() => null)
         const banInfo = !member ? await ctx.guild.bans.fetch(user.id).catch(() => null) : null
 
